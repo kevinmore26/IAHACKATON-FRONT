@@ -1,3 +1,4 @@
+import 'package:content_generator_app/screens/TeamManagementScreen.dart';
 import 'package:content_generator_app/screens/recording_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -167,6 +168,9 @@ class _HomeScreenState extends State<HomeScreen> {
             const ProjectsScreen(); // Vista de Proyectos (Tab 2 ahora)
         break;
       case 3:
+        bodyContent = const TeamManagementScreen();
+        break;
+      case 4:
         bodyContent = const ProfileScreen();
         break;
       default:
@@ -197,6 +201,8 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Icon(Icons.videocam_outlined), label: "Grabar"),
           BottomNavigationBarItem(
               icon: Icon(Icons.folder_open_outlined), label: "Proyectos"),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.calendar_month), label: "Calendario"),
           BottomNavigationBarItem(
               icon: Icon(Icons.person_outline), label: "Perfil"),
         ],

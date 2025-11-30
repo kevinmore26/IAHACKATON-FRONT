@@ -26,7 +26,9 @@ class _ProjectsScreenState extends State<ProjectsScreen>
           "https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=200&auto=format&fit=crop"
     },
   ];
+  final Set<String> _selectedIds = {};
 
+  bool get _isSelectionMode => _selectedIds.isNotEmpty;
   @override
   void initState() {
     super.initState();
@@ -119,29 +121,81 @@ class _ProjectsScreenState extends State<ProjectsScreen>
           ),
           itemCount: galleryItems.length,
           itemBuilder: (context, index) {
-            final item = galleryItems[index];
+            final item = galleryItems[index] as Map<String, dynamic>;
             final String url = item['signed_url'] ?? '';
-            final String type =
-                item['type'] ?? 'IMAGE'; // Puede ser IMAGE o VIDEO
+            final String type = item['type'] ?? 'IMAGE'; // "IMAGE" o "VIDEO"
+            final bool isVideo = type == 'VIDEO';
 
-            return InkWell(
-              onTap: () => _showGalleryItem(context, url, type),
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  image: DecorationImage(
-                    // Mostramos la URL firmada, que es la miniatura/imagen
-                    image: NetworkImage(url),
-                    fit: BoxFit.cover,
+            // Usamos un id, si tu API no manda 'id', usamos la url como fallback
+            final String id = (item['id'] ?? url).toString();
+            final bool isSelected = _selectedIds.contains(id);
+
+            return GestureDetector(
+              onLongPress: () => _toggleSelection(id), // entra modo selección
+              onTap: () {
+                if (_isSelectionMode) {
+                  _toggleSelection(id); // selecciona / deselecciona
+                } else {
+                  _showGalleryItem(context, url, type); // abre el viewer normal
+                }
+              },
+              child: Stack(
+                children: [
+                  // Fondo (imagen o placeholder de video)
+                  Positioned.fill(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: isVideo
+                          ? Container(
+                              color: Colors.black12,
+                              child: const Center(
+                                child: Icon(
+                                  Icons.videocam,
+                                  size: 32,
+                                  color: Colors.black54,
+                                ),
+                              ),
+                            )
+                          : Image.network(
+                              url,
+                              fit: BoxFit.cover,
+                              errorBuilder: (c, e, s) => Container(
+                                color: Colors.grey[200],
+                                child: const Icon(Icons.broken_image),
+                              ),
+                            ),
+                    ),
                   ),
-                ),
-                child: Center(
-                  // Icono para distinguir videos
-                  child: type == 'VIDEO'
-                      ? const Icon(Icons.play_circle_fill,
-                          color: Colors.white, size: 30)
-                      : null,
-                ),
+
+                  // Icono de play encima solo si es video
+                  if (isVideo)
+                    const Center(
+                      child: Icon(
+                        Icons.play_circle_fill,
+                        size: 30,
+                        color: Colors.white,
+                      ),
+                    ),
+
+                  // Check de selección
+                  if (isSelected)
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.blue,
+                        ),
+                        child: const Icon(
+                          Icons.check,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                ],
               ),
             );
           },
@@ -150,8 +204,7 @@ class _ProjectsScreenState extends State<ProjectsScreen>
     );
   }
 
-  // --- El resto de los Widgets (build, _buildProjectCard, _showGalleryItem, etc.) sigue igual ---
-
+ 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -167,16 +220,14 @@ class _ProjectsScreenState extends State<ProjectsScreen>
           labelColor: const Color(0xFF4461F2),
           unselectedLabelColor: Colors.grey,
           indicatorColor: const Color(0xFF4461F2),
-          tabs: const [
-            Tab(text: "Borradores"),
+          tabs: const [ 
             Tab(text: "Galería (Videos Finales)"),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
-        children: [
-          _buildDraftsList(), // Tab 1: Borradores (Mock)
+        children: [ 
           _buildGalleryGrid(), // Tab 2: Galería (API Real)
         ],
       ),
@@ -297,5 +348,20 @@ class _ProjectsScreenState extends State<ProjectsScreen>
         );
       },
     );
+  }
+
+  void _toggleSelection(String id) {
+    setState(() {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+      } else {
+        _selectedIds.add(id);
+      }
+    });
+  }
+
+  void _exportSelected() {
+    // TODO: aquí haces la lógica de exportar / compartir / lo que sea
+    print("Exportando IDs: $_selectedIds");
   }
 }

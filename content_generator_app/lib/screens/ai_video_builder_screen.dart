@@ -1,3 +1,5 @@
+// Archivo: ai_video_builder_screen.dart (CORREGIDO CON OVERLAY DE CARGA GLOBAL)
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
@@ -26,13 +28,12 @@ class _AiVideoBuilderScreenState extends State<AiVideoBuilderScreen> {
   List<dynamic> _blocks = [];
   bool _isLoadingScript = true;
   String _loadingStatusText = "Iniciando...";
-  bool _isGeneratingFinal = false;
+  bool _isGeneratingFinal = false; // Estado de generación final (activará el overlay)
   final ImagePicker _picker = ImagePicker();
 
   // Key: Block ID, Value: File
   final Map<String, File> _selectedImages = {};
 
-  // Variable para manejar errores
   String? _errorMessage;
 
   @override
@@ -41,15 +42,13 @@ class _AiVideoBuilderScreenState extends State<AiVideoBuilderScreen> {
     _fetchScriptBlocks();
   }
 
+  // ... _fetchScriptBlocks y _pickAndUploadImage quedan igual ...
   Future<void> _fetchScriptBlocks() async {
     setState(() {
       _errorMessage = null;
       _isLoadingScript = true;
     });
 
-    // Llamada al servicio
-    print(widget);
-    print(widget.ideaId);
     final blocks = await ApiService.generateScript(widget.ideaId);
 
     if (mounted) {
@@ -95,47 +94,77 @@ class _AiVideoBuilderScreenState extends State<AiVideoBuilderScreen> {
       print("Error picker: $e");
     }
   }
+  // ... _fetchScriptBlocks y _pickAndUploadImage quedan igual ...
 
+
+  // --- FUNCIÓN DE GENERACIÓN FINAL (MODIFICADA) ---
   Future<void> _handleFinalGeneration() async {
-    setState(() {
-      _isGeneratingFinal = true;
-      _loadingStatusText = "Preparando motores de IA...";
-    });
+    if (_isGeneratingFinal) return; // Evitar doble clic
 
-    // 1. Generar video por bloques
-    for (var i = 0; i < _blocks.length; i++) {
-      var block = _blocks[i];
-      String blockId = block['id'];
+    // 1. Mostrar el Overlay de carga de pantalla completa y bloquear UI
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => PopScope(
+        canPop: false, // Bloquea el botón de atrás
+        child: _buildLoadingOverlay(), // Muestra el overlay
+      ),
+    );
 
-      if (_selectedImages.containsKey(blockId)) {
+    setState(() => _isGeneratingFinal = true);
+
+    String? finalUrl;
+    bool success = false;
+
+    try {
+      // 2. Generar video por bloques
+      for (var i = 0; i < _blocks.length; i++) {
+        var block = _blocks[i];
+        String blockId = block['id'];
+
+        if (_selectedImages.containsKey(blockId)) {
+          // Usamos 'mounted' para asegurarnos de que el setState es seguro
+          if (mounted) {
+            setState(() {
+              _loadingStatusText = "Animando escena ${i + 1} de ${_blocks.length}... 🎨";
+            });
+          }
+          await ApiService.generateBlockVideo(blockId);
+        }
+      }
+
+      // 3. Render final
+      if (mounted) {
         setState(() {
-          // Mensaje dinámico: "Animando escena 1 de 3..."
-          _loadingStatusText =
-              "Animando escena ${i + 1} de ${_blocks.length}... 🎨";
+          _loadingStatusText = "Uniendo todo en una obra maestra... 🎬";
         });
-        await ApiService.generateBlockVideo(blockId);
+      }
+      finalUrl = await ApiService.renderFinalVideo(widget.ideaId);
+      
+      if (finalUrl != null) {
+        success = true;
+      }
+      
+    } catch (e) {
+      print("Error en el proceso de generación: $e");
+    } finally {
+      // 4. Cerrar el Dialog/Overlay (independiente de si fue éxito o error)
+      if (mounted) {
+        Navigator.pop(context); 
+        setState(() => _isGeneratingFinal = false);
       }
     }
 
-    // 2. Render final
-    setState(() {
-      _loadingStatusText = "Uniendo todo en una obra maestra... 🎬";
-    });
-
-    String? finalUrl = await ApiService.renderFinalVideo(widget.ideaId);
-
-    setState(() => _isGeneratingFinal = false);
-
-    if (finalUrl != null && mounted) {
+    // 5. Mostrar resultado
+    if (success && finalUrl != null && mounted) {
       _showSuccessDialog(finalUrl);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text("Error generando el video final."),
-            backgroundColor: Colors.red));
-      }
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Error generando el video final."),
+          backgroundColor: Colors.red));
     }
   }
+  // --- FIN FUNCIÓN DE GENERACIÓN FINAL (MODIFICADA) ---
 
   void _showSuccessDialog(String url) {
     // Variable para mostrar carga en el botón de exportar
@@ -224,6 +253,40 @@ class _AiVideoBuilderScreenState extends State<AiVideoBuilderScreen> {
     );
   }
 
+  // --- WIDGET OVERLAY DE CARGA DE PANTALLA COMPLETA ---
+  Widget _buildLoadingOverlay() {
+    return Container(
+      color: Colors.black54, // Fondo oscuro semitransparente
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.all(30.0),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(color: Color(0xFF4461F2)),
+              const SizedBox(height: 20),
+              const Text("Generando tu Video",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              const SizedBox(height: 10),
+              // Aquí el texto de estado se actualiza dinámicamente
+              Text(
+                _loadingStatusText,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  // --- FIN WIDGET OVERLAY DE CARGA ---
+
+
   @override
   Widget build(BuildContext context) {
     bool isReady = _blocks.isNotEmpty &&
@@ -241,12 +304,14 @@ class _AiVideoBuilderScreenState extends State<AiVideoBuilderScreen> {
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.black),
       ),
+      // El cuerpo principal se mantiene, pero ya no contiene la lógica de carga del botón
       body: _buildBody(isReady),
     );
   }
 
+  // El método _buildBody ahora no necesita manejar el estado de carga del botón
   Widget _buildBody(bool isReady) {
-    // 1. ESTADO CARGANDO
+    // 1. ESTADO CARGANDO SCRIPT
     if (_isLoadingScript) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -317,7 +382,7 @@ class _AiVideoBuilderScreenState extends State<AiVideoBuilderScreen> {
           ),
         ),
 
-        // Botón Final
+        // Botón Final (Sin spinner, solo activador)
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
@@ -333,9 +398,7 @@ class _AiVideoBuilderScreenState extends State<AiVideoBuilderScreen> {
             width: double.infinity,
             height: 56,
             child: ElevatedButton(
-              onPressed: (isReady && !_isGeneratingFinal)
-                  ? _handleFinalGeneration
-                  : null,
+              onPressed: isReady ? _handleFinalGeneration : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF4461F2),
                 disabledBackgroundColor: const Color(0xFFEAECF0),
@@ -343,33 +406,16 @@ class _AiVideoBuilderScreenState extends State<AiVideoBuilderScreen> {
                     borderRadius: BorderRadius.circular(12)),
                 elevation: 0,
               ),
-              child: _isGeneratingFinal
-                  ? Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                                color: Colors.white, strokeWidth: 2)),
-                        SizedBox(width: 12),
-                        Text(_loadingStatusText,
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12)),
-                      ],
-                    )
-                  : Text(
-                      isReady
-                          ? "Generar Video Final ✨"
-                          : "Completa las fotos (${_selectedImages.length}/${_blocks.length})",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: isReady ? Colors.white : Colors.grey[500],
-                      ),
-                    ),
+              child: Text(
+                isReady
+                    ? "Generar Video Final ✨"
+                    : "Completa las fotos (${_selectedImages.length}/${_blocks.length})",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: isReady ? Colors.white : Colors.grey[500],
+                ),
+              ),
             ),
           ),
         ),
@@ -377,6 +423,7 @@ class _AiVideoBuilderScreenState extends State<AiVideoBuilderScreen> {
     );
   }
 
+  // ... _buildBlockCard queda igual ...
   Widget _buildBlockCard(dynamic block) {
     String blockId = block['id'];
     bool hasImage = _selectedImages.containsKey(blockId);

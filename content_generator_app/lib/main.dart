@@ -1,6 +1,7 @@
 // Archivo: main.dart
 
 import 'package:content_generator_app/screens/ProjectsScreen.dart';
+import 'package:content_generator_app/screens/TeamManagementScreen.dart';
 import 'package:flutter/material.dart';
 import 'screens/login_screen.dart';
 import 'screens/welcome_screen.dart';
@@ -10,13 +11,13 @@ import 'screens/signup_screen.dart';
 // NOTA: No necesitamos importar recording_screen.dart aquí.
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized(); 
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-  
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -40,7 +41,9 @@ class MyApp extends StatelessWidget {
         '/create-profile': (context) => const CreateProfileScreen(),
         '/home': (context) => const HomeScreen(),
         // 🔴 LÍNEA ELIMINADA: /recording ya no puede estar aquí
+        '/Equipo': (context) => const TeamManagementScreen(),
         '/Proyectos': (context) => const ProjectsScreen(),
+  
       },
     );
   }
