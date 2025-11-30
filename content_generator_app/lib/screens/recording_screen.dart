@@ -1,10 +1,19 @@
+// Archivo: recording_screen.dart
+
 import 'package:camera/camera.dart';
+import 'package:content_generator_app/screens/video_review_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:async';
 
 class RecordingScreen extends StatefulWidget {
-  const RecordingScreen({super.key});
+  // AHORA RECIBIMOS LOS IDs AL INICIAR
+  final String ideaId;
+  final String organizationId;
+  // NOTA: El script ya no se recibe aquí porque esta pantalla es genérica para "Grabar"
+  // Si quieres el script, debes pasarlo a través del constructor, pero el flujo te está pidiendo estos IDs.
+
+  const RecordingScreen({super.key, required this.ideaId, required this.organizationId});
 
   @override
   State<RecordingScreen> createState() => _RecordingScreenState();
@@ -22,7 +31,7 @@ class _RecordingScreenState extends State<RecordingScreen>
   final ScrollController _scrollController = ScrollController();
   Timer? _teleprompterTimer;
 
-  // DATOS MOCK
+  // DATOS MOCK (Los usaremos para el Teleprompter)
   final String _hook = "¡DEJA DE PERDER DINERO EN TUS ANUNCIOS!";
   final String _script = """
 Hola, soy [Tu Nombre].
@@ -46,8 +55,7 @@ Mira cómo en 3 pasos generamos tu estrategia.
     // 1. Pedir permisos
     await Permission.camera.request();
     await Permission.microphone.request();
-    // Esta librería requiere permiso de almacenamiento explícito
-    await Permission.storage.request();
+    await Permission.storage.request(); // Aunque no guardamos a galería, es buena práctica para permisos generales
 
     final cameras = await availableCameras();
     if (cameras.isEmpty) return;
@@ -76,63 +84,54 @@ Mira cómo en 3 pasos generamos tu estrategia.
     super.dispose();
   }
 
+// --- FUNCIÓN DE GRABACIÓN Y NAVEGACIÓN ---
+
   Future<void> _toggleRecording() async {
     if (_controller == null || !_controller!.value.isInitialized) return;
 
     if (_isRecording) {
-      // --- DETENER Y GUARDAR ---
+      // --- DETENER Y LIBERAR RECURSOS ---
       try {
         final XFile videoFile = await _controller!.stopVideoRecording();
 
         _teleprompterTimer?.cancel();
-        setState(() => _isRecording = false);
 
-        // --- GUARDAR CON IMAGE_GALLERY_SAVER ---
-        print("Guardando en ruta: ${videoFile.path}");
-        // final result = await ImageGallerySaver.saveFile(videoFile.path);
+        // 1. GUARDAR REFERENCIA Y DISPONER INMEDIATAMENTE
+        final tempController = _controller;
+        _controller = null; // Anular la referencia
 
-        // ... dentro de _toggleRecording, después de ImageGallerySaver.saveFile ...
+        // 2. DETENER LA RENDERIZACIÓN EN EL WIDGET TREE (FIX para evitar CameraException)
+        setState(() {
+            _isCameraInitialized = false; 
+            _isRecording = false;
+        });
+        
+        await tempController?.dispose(); // Liberación forzada (segura)
 
+        // 3. NAVEGAR a la pantalla de Revisión con todos los IDs
         if (mounted) {
-          // 1. Mostrar diálogo de celebración
-          await showDialog(
-            context: context,
-            barrierDismissible: false, // Obligar a esperar
-            builder: (context) => AlertDialog(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20)),
-              title: const Column(
-                children: [
-                  Icon(Icons.check_circle, color: Colors.green, size: 60),
-                  SizedBox(height: 10),
-                  Text("¡Misión Cumplida!", textAlign: TextAlign.center),
-                ],
-              ),
-              content: const Text(
-                "Video guardado. Tu estrategia avanza.",
-                textAlign: TextAlign.center,
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(context); // Cierra el diálogo
-                    // 2. Regresa al Home devolviendo "true" (significa: Tarea completada)
-                    Navigator.pop(context, true);
-                  },
-                  child: const Text("Continuar",
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                ),
-              ],
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) =>
+                  VideoReviewScreen(
+                    videoPath: videoFile.path,
+                    ideaId: widget.ideaId, // PASANDO EL ID
+                    organizationId: widget.organizationId, // PASANDO EL ORG ID
+                  ),
             ),
           );
+
+          // 4. CUANDO EL USUARIO REGRESE, REINICIALIZAMOS LA CÁMARA
+          _initializeCamera();
         }
       } catch (e) {
-        print("Error: $e");
+        print("Error al detener o guardar: $e");
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+            SnackBar(content: Text("Error al grabar: $e"), backgroundColor: Colors.red),
           );
+          _initializeCamera(); 
         }
       }
     } else {
@@ -177,18 +176,15 @@ Mira cómo en 3 pasos generamos tu estrategia.
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // --- CAPA 1: CÁMARA CORREGIDA (Cubre toda la pantalla sin estirarse) ---
+          // --- CAPA 1: CÁMARA CORREGIDA ---
           Positioned.fill(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                // 1. Calculamos el tamaño de la pantalla y de la cámara
                 final size = constraints.biggest;
                 var scale = size.aspectRatio * _controller!.value.aspectRatio;
 
-                // 2. Ajustamos la escala para que cubra todo (efecto BoxFit.cover)
                 if (scale < 1) scale = 1 / scale;
 
-                // 3. Aplicamos la transformación
                 return Transform.scale(
                   scale: scale,
                   child: Center(
@@ -198,21 +194,15 @@ Mira cómo en 3 pasos generamos tu estrategia.
               },
             ),
           ),
-          if (_showGhostOverlay)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: Opacity(
-                  opacity: 0.3,
-                  child: Image.network(
-                    'https://cdn-icons-png.flaticon.com/512/17/17004.png',
-                    fit: BoxFit.contain,
-                  ),
-                ),
-              ),
-            ),
+          
+          // --- CAPA 2: CONTENIDO (Teleprompter y UI) ---
           SafeArea(
             child: Column(
               children: [
+                // ... (AppBar superior igual) ...
+                // ... (Ghost Overlay, si lo usas, igual) ...
+                
+                // HEADER UI
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: Row(
@@ -226,18 +216,20 @@ Mira cómo en 3 pasos generamos tu estrategia.
                               color: Colors.white,
                               fontWeight: FontWeight.bold)),
                       const Spacer(),
+                      // Botón que no existe en el flujo actual, pero lo dejamos por estética
                       IconButton(
                           icon: Icon(
-                              _showGhostOverlay
-                                  ? Icons.person
-                                  : Icons.person_off,
+                              _showGhostOverlay ? Icons.person : Icons.person_off,
                               color: Colors.white),
                           onPressed: () => setState(
                               () => _showGhostOverlay = !_showGhostOverlay)),
                     ],
                   ),
                 ),
+                
                 const Spacer(),
+                
+                // TELEPROMPTER/SCRIPT UI
                 Container(
                   height: 250,
                   margin: const EdgeInsets.symmetric(horizontal: 20),
@@ -269,6 +261,8 @@ Mira cómo en 3 pasos generamos tu estrategia.
                   ),
                 ),
                 const SizedBox(height: 30),
+                
+                // BOTÓN DE GRABAR
                 GestureDetector(
                   onTap: _toggleRecording,
                   child: CircleAvatar(

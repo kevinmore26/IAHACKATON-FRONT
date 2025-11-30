@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'login_screen.dart';
 
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
@@ -10,18 +9,119 @@ class WelcomeScreen extends StatefulWidget {
 }
 
 class _WelcomeScreenState extends State<WelcomeScreen> {
-  // Controladores para la animación del scroll infinito
   final ScrollController _scrollController1 = ScrollController();
   final ScrollController _scrollController2 = ScrollController();
-  
+
   @override
   void initState() {
     super.initState();
-    // Iniciamos el auto-scroll suave
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _startAutoScroll(_scrollController1, 20);
-      _startAutoScroll(_scrollController2, 15); // Velocidad diferente para efecto paralaje
+      _startAutoScroll(_scrollController2, 15);
     });
+  }
+
+  void _showDetailsBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true, // para que pueda ocupar más alto
+      backgroundColor: Colors.transparent, // para ver el redondeado lindo
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.45, // 45% de alto al abrir
+          minChildSize: 0.3, // mínimo 30%
+          maxChildSize: 0.9, // máximo 90%
+          builder: (context, scrollController) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(
+                  top: Radius.circular(24),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    blurRadius: 16,
+                    offset: Offset(0, -4),
+                    spreadRadius: 0,
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 8),
+                  // barrita de arrastre
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Título
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16.0),
+                    child: Text(
+                      "Detalles del plan",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  // Contenido scrolleable
+                  Expanded(
+                    child: ListView(
+                      controller: scrollController,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      children: const [
+                        Text(
+                          "• Punto 1: descripción del beneficio.\n"
+                          "• Punto 2: otro detalle importante.\n"
+                          "• Punto 3: condiciones, límites, etc.\n\n"
+                          "Aquí puedes meter lo que quieras: "
+                          "texto, iconos, filas, etc.",
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Botón de acción abajo
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          // aquí podrías disparar algo más, tipo ir a signup
+                        },
+                        style: ElevatedButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        child: const Text("Entendido"),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   void _startAutoScroll(ScrollController controller, int durationSeconds) {
@@ -29,21 +129,18 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     try {
       double maxScroll = controller.position.maxScrollExtent;
       double currentScroll = controller.offset;
-      
-      // Si llegamos al final, volvemos al principio, si no, avanzamos
       double target = currentScroll >= maxScroll ? 0.0 : maxScroll;
-      
-      controller.animateTo(
+
+      controller
+          .animateTo(
         target,
         duration: Duration(seconds: durationSeconds),
         curve: Curves.linear,
-      ).then((_) {
-        // Loop infinito
+      )
+          .then((_) {
         if (mounted) _startAutoScroll(controller, durationSeconds);
       });
-    } catch (e) {
-      // Ignoramos errores de scroll si se cierra la pantalla
-    }
+    } catch (e) {}
   }
 
   @override
@@ -59,16 +156,16 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       backgroundColor: Colors.white,
       body: Stack(
         children: [
-          // --- 1. FONDO "PINTEREST" ANIMADO ---
+          // FONDO ANIMADO
           Row(
             children: [
               Expanded(child: _buildInfiniteColumn(_scrollController1, 0)),
-              const SizedBox(width: 10), // Separación
+              const SizedBox(width: 10),
               Expanded(child: _buildInfiniteColumn(_scrollController2, 5)),
             ],
           ),
 
-          // --- 2. DEGRADADO BLANCO (Para que se lea el texto) ---
+          // DEGRADADO
           Positioned.fill(
             child: Container(
               decoration: BoxDecoration(
@@ -77,8 +174,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                   end: Alignment.bottomCenter,
                   colors: [
                     Colors.white.withOpacity(0.1),
-                    Colors.white.withOpacity(0.8),
-                    Colors.white,
+                    Colors.white.withOpacity(0.9),
+                    Colors.white
                   ],
                   stops: const [0.0, 0.6, 1.0],
                 ),
@@ -86,85 +183,59 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             ),
           ),
 
-          // --- 3. CONTENIDO PRINCIPAL ---
+          // CONTENIDO
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 30),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 24.0, vertical: 30),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.end,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Badge decorativo
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF2F4F7),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white, width: 2),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.auto_awesome, color: Color(0xFF4461F2), size: 16),
-                        SizedBox(width: 8),
-                        Text("IA para Creadores", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  
-                  // Título grande
-                  const Text(
-                    "Tu Estrategia de\nContenido Viral,\nLista en Segundos.",
-                    style: TextStyle(
-                      fontSize: 36,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF101828),
-                      height: 1.1,
-                      letterSpacing: -1,
-                    ),
-                  ),
+                  const Text("Tu Estrategia Viral,\nLista en Segundos.",
+                      style: TextStyle(
+                          fontSize: 36,
+                          fontWeight: FontWeight.w900,
+                          height: 1.1)),
                   const SizedBox(height: 16),
-                  
-                  // Subtítulo
                   const Text(
-                    "No más bloqueos creativos. Deja que la IA organice, guionice y dirija tus videos para vender más.",
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Color(0xFF667085),
-                      height: 1.5,
-                    ),
-                  ),
+                      "Deja que la IA organice, guionice y dirija tus videos.",
+                      style: TextStyle(fontSize: 16, color: Colors.grey)),
                   const SizedBox(height: 40),
 
-                  // Botón Gigante
+                  // BOTÓN 1: REGISTRO (ONBOARDING)
                   SizedBox(
                     width: double.infinity,
                     height: 56,
                     child: ElevatedButton(
                       onPressed: () {
-                         Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => const LoginScreen()),
-                        );
+                        // CORRECCIÓN AQUÍ: Ahora va al Registro primero
+                        Navigator.pushNamed(context, '/signup');
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF4461F2),
                         foregroundColor: Colors.white,
-                        elevation: 10,
-                        shadowColor: const Color(0xFF4461F2).withOpacity(0.4),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
+                            borderRadius: BorderRadius.circular(16)),
                       ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text("Empezar Gratis", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                          SizedBox(width: 10),
-                          Icon(Icons.arrow_forward_rounded),
-                        ],
-                      ),
+                      child: const Text("Empezar Gratis",
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // BOTÓN 2: LOGIN (USUARIO VIEJO)
+                  Center(
+                    child: TextButton(
+                      onPressed: () {
+                        // Usuario viejo va directo al Login
+                        Navigator.pushNamed(context, '/login');
+                      },
+                      child: const Text("¿Ya tienes cuenta? Inicia Sesión",
+                          style: TextStyle(
+                              color: Color(0xFF4461F2),
+                              fontWeight: FontWeight.bold)),
                     ),
                   ),
                 ],
@@ -176,13 +247,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     );
   }
 
-  // Constructor de columnas infinitas con imágenes mock
   Widget _buildInfiniteColumn(ScrollController controller, int seed) {
     return ListView.builder(
       controller: controller,
-      physics: const NeverScrollableScrollPhysics(), // El usuario no puede scrollear, es automático
+      physics: const NeverScrollableScrollPhysics(),
       itemBuilder: (context, index) {
-        // Altura aleatoria para efecto "Masonry" (Ladrillos)
         final double height = (200 + (index * seed * 10) % 150).toDouble();
         return Container(
           height: height,
@@ -190,8 +259,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             image: DecorationImage(
-              // Usamos Picsum para imágenes aleatorias bonitas
-              image: NetworkImage('https://picsum.photos/300/${height.toInt()}?random=$index$seed'),
+              image: NetworkImage(
+                  'https://picsum.photos/300/${height.toInt()}?random=$index$seed'),
               fit: BoxFit.cover,
             ),
           ),

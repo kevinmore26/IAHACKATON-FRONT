@@ -1,3 +1,4 @@
+import 'package:content_generator_app/services/api_service.dart';
 import 'package:flutter/material.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -11,44 +12,47 @@ class _LoginScreenState extends State<LoginScreen> {
   // Controladores para capturar lo que escribe el usuario
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  
+
   bool _rememberMe = false;
   bool _isLoading = false;
 
   // Lógica de inicio de sesión "En Duro"
+// ... imports ...
+
+// Busca la función _handleLogin y cámbiala por esto:
   void _handleLogin() async {
-    // 1. Validar campos vacíos
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Por favor llena todos los campos'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Llena los campos')));
       return;
     }
 
-    // Activar carga visual
     setState(() => _isLoading = true);
-    
-    // Simulación de espera de red (2 segundos)
-    await Future.delayed(const Duration(seconds: 2));
-    
-    if (mounted) {
-      setState(() => _isLoading = false);
 
-      // 2. VALIDACIÓN: La contraseña TIENE que ser "1234"
-      if (_passwordController.text == '1234') {
-        // ÉXITO: Navegar a la pantalla de Crear Perfil
-        // Usamos pushReplacementNamed para que NO puedan volver atrás
-        Navigator.pushReplacementNamed(context, '/create-profile');
-      } else {
-        // ERROR: Contraseña incorrecta
+    // 1. Llamada REAL a la API [cite: 38]
+    bool success = await ApiService.login(
+        _emailController.text.trim(), _passwordController.text.trim());
+
+    setState(() => _isLoading = false);
+
+    if (success) {
+      if (mounted) {
+        // 2. Verificamos si ApiService encontró una organización
+        if (ApiService.currentOrganizationId != null) {
+          // Tiene empresa -> Va al HOME
+          Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+        } else {
+          // No tiene empresa -> Va a CREAR PERFIL
+          Navigator.pushNamedAndRemoveUntil(
+              context, '/create-profile', (route) => false);
+        }
+      }
+    } else {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Contraseña incorrecta (Usa: 1234)'),
-            backgroundColor: Colors.red,
-          ),
+              content: Text('Credenciales incorrectas'),
+              backgroundColor: Colors.red),
         );
       }
     }
@@ -61,7 +65,8 @@ class _LoginScreenState extends State<LoginScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 400),
               child: Column(
@@ -88,11 +93,12 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ],
                       ),
-                      child: const Icon(Icons.person, color: Colors.white, size: 28),
+                      child: const Icon(Icons.person,
+                          color: Colors.white, size: 28),
                     ),
                   ),
                   const SizedBox(height: 24),
-                  
+
                   // --- TÍTULOS ---
                   const Text(
                     "Log in to your account",
@@ -132,7 +138,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     obscureText: true,
                     decoration: _inputDecoration("••••••••"),
                   ),
-                  
+
                   // --- CHECKBOX ---
                   const SizedBox(height: 16),
                   Row(
@@ -155,7 +161,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(width: 8),
                       const Text(
                         "Remember for 30 days",
-                        style: TextStyle(color: Color(0xFF344054), fontSize: 14),
+                        style:
+                            TextStyle(color: Color(0xFF344054), fontSize: 14),
                       ),
                       const Spacer(),
                       TextButton(
@@ -188,18 +195,19 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       child: _isLoading
                           ? const SizedBox(
-                              height: 24, 
-                              width: 24, 
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-                            )
+                              height: 24,
+                              width: 24,
+                              child: CircularProgressIndicator(
+                                  color: Colors.white, strokeWidth: 2))
                           : const Text(
                               "Sign in",
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                              style: TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.w600),
                             ),
                     ),
                   ),
                   const SizedBox(height: 16),
-                  
+
                   // --- BOTÓN GOOGLE ---
                   SizedBox(
                     height: 50,
@@ -215,7 +223,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.g_mobiledata, size: 30, color: Colors.black), 
+                          const Icon(Icons.g_mobiledata,
+                              size: 30, color: Colors.black),
                           const SizedBox(width: 8),
                           const Text(
                             "Sign in with Google",
@@ -229,7 +238,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
-                  
+
                   // --- FOOTER SIGN UP ---
                   const SizedBox(height: 32),
                   Row(

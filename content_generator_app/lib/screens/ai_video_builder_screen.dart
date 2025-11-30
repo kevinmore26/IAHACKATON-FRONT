@@ -1,284 +1,497 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart'; // <--- ¡ESTA ES LA LÍNEA QUE FALTABA!
+import 'package:image_picker/image_picker.dart';
 import 'dart:io';
+import '../services/api_service.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 
 class AiVideoBuilderScreen extends StatefulWidget {
+  final String ideaId;
   final String missionTitle;
-  const AiVideoBuilderScreen({super.key, required this.missionTitle});
+  final String organizationId;
+
+  const AiVideoBuilderScreen({
+    super.key,
+    required this.ideaId,
+    required this.missionTitle,
+    required this.organizationId,
+  });
 
   @override
   State<AiVideoBuilderScreen> createState() => _AiVideoBuilderScreenState();
 }
 
 class _AiVideoBuilderScreenState extends State<AiVideoBuilderScreen> {
-  // SIMULACIÓN: La IA desglosó el guion en escenas (Bloques)
-  final List<Map<String, dynamic>> _scenes = [
-    {
-      "id": 1,
-      "type": "NARRATOR",
-      "duration": "5s",
-      "script": "POV: Eres la persona más torpe y acabas de comprar cartera nueva...",
-      "instruction": "Sube una foto tuya con cara de preocupación.",
-      "image": null,
-    },
-    {
-      "id": 2,
-      "type": "SHOWCASE",
-      "duration": "9s",
-      "script": "¡Pero no pasa nada si es nuestra cartera mágica! ¿Se cae el café?",
-      "instruction": "Sube una foto del producto siendo usado o manchado.",
-      "image": null,
-    },
-    {
-      "id": 3,
-      "type": "SHOWCASE", 
-      "duration": "8s",
-      "script": "¿Te preocupan las llaves? Olvídate de los rayones.",
-      "instruction": "Foto detalle de la textura del material.",
-      "image": null,
-    },
-    {
-      "id": 4,
-      "type": "NARRATOR",
-      "duration": "4s",
-      "script": "Así que ya sabes, para tu vida caótica, necesitas esto.",
-      "instruction": "Foto tuya sonriendo con el producto.",
-      "image": null,
-    },
-  ];
+  List<dynamic> _blocks = [];
+  bool _isLoadingScript = true;
+  String _loadingStatusText = "Iniciando...";
+  bool _isGeneratingFinal = false;
+  final ImagePicker _picker = ImagePicker();
 
-  final ImagePicker _picker = ImagePicker(); // Ahora sí funcionará
+  // Key: Block ID, Value: File
+  final Map<String, File> _selectedImages = {};
 
-  Future<void> _pickImage(int index) async {
-    // IMPORTANTE: Manejo de errores por si el usuario cancela o no hay permisos
+  // Variable para manejar errores
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchScriptBlocks();
+  }
+
+  Future<void> _fetchScriptBlocks() async {
+    setState(() {
+      _errorMessage = null;
+      _isLoadingScript = true;
+    });
+
+    // Llamada al servicio
+    print(widget);
+    print(widget.ideaId);
+    final blocks = await ApiService.generateScript(widget.ideaId);
+
+    if (mounted) {
+      setState(() {
+        if (blocks != null) {
+          _blocks = blocks;
+          if (_blocks.isEmpty) {
+            _errorMessage = "La IA no devolvió bloques. Intenta de nuevo.";
+          }
+        } else {
+          _errorMessage = "Error de conexión. Revisa tu internet o el token.";
+        }
+        _isLoadingScript = false;
+      });
+    }
+  }
+
+  Future<void> _pickAndUploadImage(String blockId) async {
     try {
       final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+
       if (image != null) {
+        File file = File(image.path);
+
         setState(() {
-          _scenes[index]['image'] = File(image.path);
+          _selectedImages[blockId] = file;
         });
+
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text("Subiendo imagen..."),
+            duration: Duration(seconds: 1)));
+
+        bool success = await ApiService.uploadBlockMedia(blockId, file);
+
+        if (success) {
+          print("Imagen subida para bloque $blockId");
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text("Error al subir imagen a la nube.")));
+        }
       }
     } catch (e) {
-      print("Error al seleccionar imagen: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("No se pudo cargar la imagen. Revisa los permisos.")),
-      );
+      print("Error picker: $e");
     }
+  }
+
+  Future<void> _handleFinalGeneration() async {
+    setState(() {
+      _isGeneratingFinal = true;
+      _loadingStatusText = "Preparando motores de IA...";
+    });
+
+    // 1. Generar video por bloques
+    for (var i = 0; i < _blocks.length; i++) {
+      var block = _blocks[i];
+      String blockId = block['id'];
+
+      if (_selectedImages.containsKey(blockId)) {
+        setState(() {
+          // Mensaje dinámico: "Animando escena 1 de 3..."
+          _loadingStatusText =
+              "Animando escena ${i + 1} de ${_blocks.length}... 🎨";
+        });
+        await ApiService.generateBlockVideo(blockId);
+      }
+    }
+
+    // 2. Render final
+    setState(() {
+      _loadingStatusText = "Uniendo todo en una obra maestra... 🎬";
+    });
+
+    String? finalUrl = await ApiService.renderFinalVideo(widget.ideaId);
+
+    setState(() => _isGeneratingFinal = false);
+
+    if (finalUrl != null && mounted) {
+      _showSuccessDialog(finalUrl);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text("Error generando el video final."),
+            backgroundColor: Colors.red));
+      }
+    }
+  }
+
+  void _showSuccessDialog(String url) {
+    // Variable para mostrar carga en el botón de exportar
+    // (Usamos StatefulBuilder para actualizar solo el diálogo)
+    bool isDownloading = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(builder: (context, setDialogState) {
+        return AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          contentPadding: const EdgeInsets.all(24),
+          title: const Column(
+            children: [
+              Icon(Icons.check_circle, color: Colors.green, size: 60),
+              SizedBox(height: 10),
+              Text("¡Video Generado!",
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: const Text(
+            "Tu video .MP4 está listo. Expórtalo para editarlo en CapCut o guárdalo en tu galería.",
+            textAlign: TextAlign.center,
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            // BOTÓN CERRAR
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cerrar", style: TextStyle(color: Colors.grey)),
+            ),
+
+            // BOTÓN EXPORTAR PRO
+            ElevatedButton.icon(
+              onPressed: isDownloading
+                  ? null
+                  : () async {
+                      // 1. Mostrar carga en el botón
+                      setDialogState(() => isDownloading = true);
+
+                      try {
+                        // 2. Descargar el video de la URL
+                        final response = await http.get(Uri.parse(url));
+                        final bytes = response.bodyBytes;
+
+                        // 3. Obtener carpeta temporal del celular
+                        final tempDir = await getTemporaryDirectory();
+                        final savePath =
+                            '${tempDir.path}/video_ia_generado.mp4';
+                        final file = File(savePath);
+
+                        // 4. Guardar los bytes en un archivo real .mp4
+                        await file.writeAsBytes(bytes);
+
+                        // 5. Compartir EL ARCHIVO (No el link)
+                        // Esto abre el menú nativo y apps como CapCut detectan que es video
+                        await Share.shareXFiles([XFile(savePath)],
+                            text: '¡Video generado con mi IA!');
+                      } catch (e) {
+                        print("Error exportando: $e");
+                      } finally {
+                        // Dejar de cargar
+                        setDialogState(() => isDownloading = false);
+                      }
+                    },
+              icon: isDownloading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Icon(Icons.ios_share),
+              label: Text(isDownloading ? "Descargando..." : "Exportar Video"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.black,
+                foregroundColor: Colors.white,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              ),
+            )
+          ],
+        );
+      }),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    // Calculamos si todas las escenas tienen imagen
-    bool isReadyToGenerate = _scenes.every((scene) => scene['image'] != null);
+    bool isReady = _blocks.isNotEmpty &&
+        _blocks.every((b) => _selectedImages.containsKey(b['id']));
 
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text("Tablero de Rodaje 🎬", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        title: const Text("Tablero de Rodaje 🎬",
+            style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+                color: Colors.black)),
         backgroundColor: Colors.white,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              setState(() {
-                for (var scene in _scenes) {
-                  scene['image'] = null;
-                }
-              });
-            },
-            child: const Text("Limpiar", style: TextStyle(color: Colors.grey)),
-          )
-        ],
+        iconTheme: const IconThemeData(color: Colors.black),
       ),
-      body: Column(
-        children: [
-          // Header Explicativo
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            color: const Color(0xFFF9FAFB),
-            width: double.infinity,
-            child: const Text(
-              "Completa cada bloque con una foto. La IA usará 'Veo' para animarlas y narrar el texto.",
-              style: TextStyle(color: Color(0xFF667085), fontSize: 14),
-            ),
-          ),
-          
-          // Lista de Escenas (Bloques)
-          Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.all(20),
-              itemCount: _scenes.length,
-              separatorBuilder: (c, i) => const SizedBox(height: 16),
-              itemBuilder: (context, index) {
-                return _buildSceneCard(index);
-              },
-            ),
-          ),
-
-          // Botón Final
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))],
-            ),
-            child: SizedBox(
-              width: double.infinity,
-              height: 56,
-              child: ElevatedButton(
-                // Solo se activa si subió todas las fotos (o puedes dejarlo activo para demo)
-                onPressed: isReadyToGenerate ? () {
-                  _simulateGeneration(context);
-                } : null, 
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF4461F2),
-                  disabledBackgroundColor: const Color(0xFFEAECF0),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                child: Text(
-                  isReadyToGenerate ? "Generar Video Final ✨" : "Sube las fotos faltantes",
-                  style: TextStyle(
-                    fontSize: 16, 
-                    fontWeight: FontWeight.bold,
-                    color: isReadyToGenerate ? Colors.white : Colors.grey,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+      body: _buildBody(isReady),
     );
   }
 
-  Widget _buildSceneCard(int index) {
-    final scene = _scenes[index];
-    final bool hasImage = scene['image'] != null;
+  Widget _buildBody(bool isReady) {
+    // 1. ESTADO CARGANDO
+    if (_isLoadingScript) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    // 2. ESTADO ERROR
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline,
+                  size: 48, color: Colors.redAccent),
+              const SizedBox(height: 16),
+              Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.grey, fontSize: 16),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: _fetchScriptBlocks,
+                icon: const Icon(Icons.refresh),
+                label: const Text("Reintentar"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4461F2),
+                  foregroundColor: Colors.white,
+                ),
+              )
+            ],
+          ),
+        ),
+      );
+    }
+
+    // 3. ESTADO ÉXITO (LA LISTA)
+    return Column(
+      children: [
+        // Header informativo
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          color: const Color(0xFFF9FAFB),
+          width: double.infinity,
+          child: const Row(
+            children: [
+              Icon(Icons.info_outline, size: 16, color: Color(0xFF667085)),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  "Sube una foto para cada escena generada por la IA.",
+                  style: TextStyle(color: Color(0xFF667085), fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Lista de Bloques
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.all(20),
+            itemCount: _blocks.length,
+            separatorBuilder: (c, i) => const SizedBox(height: 16),
+            itemBuilder: (context, index) {
+              return _buildBlockCard(_blocks[index]);
+            },
+          ),
+        ),
+
+        // Botón Final
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, -5))
+            ],
+          ),
+          child: SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton(
+              onPressed: (isReady && !_isGeneratingFinal)
+                  ? _handleFinalGeneration
+                  : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4461F2),
+                disabledBackgroundColor: const Color(0xFFEAECF0),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                elevation: 0,
+              ),
+              child: _isGeneratingFinal
+                  ? Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                                color: Colors.white, strokeWidth: 2)),
+                        SizedBox(width: 12),
+                        Text(_loadingStatusText,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12)),
+                      ],
+                    )
+                  : Text(
+                      isReady
+                          ? "Generar Video Final ✨"
+                          : "Completa las fotos (${_selectedImages.length}/${_blocks.length})",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: isReady ? Colors.white : Colors.grey[500],
+                      ),
+                    ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBlockCard(dynamic block) {
+    String blockId = block['id'];
+    bool hasImage = _selectedImages.containsKey(blockId);
+    File? imageFile = _selectedImages[blockId];
 
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: hasImage ? const Color(0xFF4461F2) : const Color(0xFFEAECF0), width: hasImage ? 1.5 : 1),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8, offset: const Offset(0, 2)),
-        ],
+        border: Border.all(
+            color: hasImage ? const Color(0xFF4461F2) : const Color(0xFFEAECF0),
+            width: hasImage ? 2 : 1),
       ),
       child: Column(
         children: [
-          // Header de la Tarjeta
           Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Icono del tipo de escena
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF2F4F7),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    scene['type'] == 'NARRATOR' ? Icons.mic : Icons.videocam,
-                    size: 20, color: const Color(0xFF344054),
-                  ),
+                      color: const Color(0xFFF2F4F7),
+                      borderRadius: BorderRadius.circular(8)),
+                  child: const Icon(Icons.movie_filter,
+                      size: 20, color: Color(0xFF344054)),
                 ),
                 const SizedBox(width: 12),
-                // Textos
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            "Escena ${scene['id']}: ${scene['type']}",
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                          ),
-                          const SizedBox(width: 8),
+                          Text("Escena ${block['order'] ?? '-'}",
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 14)),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(color: const Color(0xFFEFF4FF), borderRadius: BorderRadius.circular(4)),
-                            child: Text(scene['duration'], style: const TextStyle(fontSize: 10, color: Color(0xFF4461F2), fontWeight: FontWeight.bold)),
-                          ),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                                color: Colors.blue.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(4)),
+                            child: Text(block['type'] ?? 'CLIP',
+                                style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blue)),
+                          )
                         ],
                       ),
+                      const SizedBox(height: 8),
+                      Text(block['script'] ?? "...",
+                          style: const TextStyle(
+                              fontSize: 14,
+                              color: Color(0xFF344054),
+                              height: 1.4)),
                       const SizedBox(height: 6),
-                      Text(
-                        scene['script'],
-                        style: const TextStyle(fontSize: 13, color: Color(0xFF667085), height: 1.4),
-                      ),
+                      Text("Instrucción IA: ${block['instructions'] ?? ''}",
+                          style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF667085),
+                              fontStyle: FontStyle.italic)),
                     ],
                   ),
                 ),
               ],
             ),
           ),
-
-          // Área de Subida (Upload Slot)
           GestureDetector(
-            onTap: () => _pickImage(index),
+            onTap: () => _pickAndUploadImage(blockId),
             child: Container(
-              height: 120,
+              height: 140,
               width: double.infinity,
               margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               decoration: BoxDecoration(
                 color: hasImage ? Colors.black : const Color(0xFFF9FAFB),
                 borderRadius: BorderRadius.circular(12),
-                border: hasImage ? null : Border.all(color: const Color(0xFFD0D5DD), style: BorderStyle.solid),
-                image: hasImage ? DecorationImage(image: FileImage(scene['image']), fit: BoxFit.cover) : null,
+                image: hasImage
+                    ? DecorationImage(
+                        image: FileImage(imageFile!), fit: BoxFit.cover)
+                    : null,
+                border: hasImage
+                    ? null
+                    : Border.all(
+                        color: const Color(0xFFD0D5DD),
+                        style: BorderStyle.solid),
               ),
-              child: hasImage 
-                ? const Center(child: Icon(Icons.edit, color: Colors.white70))
-                : Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.cloud_upload_outlined, color: Color(0xFF4461F2)),
-                      const SizedBox(height: 8),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Text(
-                          scene['instruction'],
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(fontSize: 12, color: Color(0xFF98A2B3)),
-                        ),
-                      ),
-                    ],
-                  ),
+              child: hasImage
+                  ? Container(
+                      decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: Colors.black.withOpacity(0.3)),
+                      child: const Center(
+                          child:
+                              Icon(Icons.edit, color: Colors.white, size: 30)))
+                  : const Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.add_photo_alternate_outlined,
+                            color: Color(0xFF4461F2), size: 32),
+                        SizedBox(height: 8),
+                        Text("Subir Referencia",
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF4461F2))),
+                      ],
+                    ),
             ),
           ),
         ],
       ),
     );
-  }
-
-  void _simulateGeneration(BuildContext context) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 20),
-            const Text("Enviando bloques a Veo...", style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-            Text("Estamos animando tus ${ _scenes.length} fotos.", textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
-          ],
-        ),
-      ),
-    );
-
-    // Simular espera y éxito
-    Future.delayed(const Duration(seconds: 3), () {
-      Navigator.pop(context); // Cerrar loader
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("¡Video Generado! (Simulado)")));
-    });
   }
 }
